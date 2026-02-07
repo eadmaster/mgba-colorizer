@@ -530,12 +530,15 @@ void mGUIRun(struct mGUIRunner* runner, const char* path) {
 				break;
 			}
 			if (guiKeys & (1 << mGUI_INPUT_QUICK_SAVE)) {
-				mCoreSaveStateNamed(runner->core, runner->autosave.buffer, SAVESTATE_SAVEDATA | SAVESTATE_RTC | SAVESTATE_METADATA);
-				GUIFontPrintf(runner->params.font, 0, GUIFontHeight(runner->params.font), GUI_ALIGN_LEFT, 0x7FFFFFFF, "Quicksave");
+				//mCoreSaveStateNamed(runner->core, runner->autosave.buffer, SAVESTATE_SAVEDATA | SAVESTATE_RTC | SAVESTATE_METADATA);
+				//GUIFontPrintf(runner->params.font, 0, GUIFontHeight(runner->params.font), GUI_ALIGN_LEFT, 0x7FFFFFFF, "Quicksave");
+				_tryAutosave(runner);  // 2FIX: needs autosave set to on
 			}
 			if (guiKeys & (1 << mGUI_INPUT_QUICK_LOAD)) {
-				mCoreLoadStateNamed(runner->core, runner->autosave.buffer, SAVESTATE_SAVEDATA | SAVESTATE_RTC | SAVESTATE_METADATA);
-				GUIFontPrintf(runner->params.font, 0, GUIFontHeight(runner->params.font), GUI_ALIGN_LEFT, 0x7FFFFFFF, "Quickload");
+				if (runner->autosave.buffer) {
+					mCoreLoadStateNamed(runner->core, runner->autosave.buffer, SAVESTATE_SAVEDATA | SAVESTATE_RTC | SAVESTATE_METADATA);
+					GUIFontPrintf(runner->params.font, 0, GUIFontHeight(runner->params.font), GUI_ALIGN_LEFT, 0x7FFFFFFF, "Quickload");
+				}
 			}
 			//if (guiKeys & (1 << mGUI_INPUT_REWIND)) {
 			//	//

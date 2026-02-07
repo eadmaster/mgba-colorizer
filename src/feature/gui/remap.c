@@ -51,11 +51,11 @@ void mGUIRemapKeys(struct GUIParams* params, struct mInputMap* map, const struct
 		};
 	}
 	*GUIMenuItemListAppend(&menu.items) = (struct GUIMenuItem) {
-		.title = "Save",
+		.title = "[Save]",
 		.data = GUI_V_I(-2),
 	};
 	*GUIMenuItemListAppend(&menu.items) = (struct GUIMenuItem) {
-		.title = "Cancel",
+		.title = "[Cancel]",
 		.data = GUI_V_I(-1),
 	};
 

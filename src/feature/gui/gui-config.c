@@ -228,7 +228,7 @@ void mGUIShowConfig(struct mGUIRunner* runner, struct GUIMenuItem* extra, size_t
 			i = 0;
 		}
 		*GUIMenuItemListAppend(&menu.items) = (struct GUIMenuItem) {
-			.title = "Remap controls",
+			.title = "> Remap controls",
 			.data = GUI_V_U(CONFIG_REMAP),
 			.state = 0,
 			.validStates = i ? mapNames : 0,
@@ -239,11 +239,11 @@ void mGUIShowConfig(struct mGUIRunner* runner, struct GUIMenuItem* extra, size_t
 		*GUIMenuItemListAppend(&menu.items) = extra[i];
 	}
 	*GUIMenuItemListAppend(&menu.items) = (struct GUIMenuItem) {
-		.title = "Save",
+		.title = "[Save]",
 		.data = GUI_V_U(CONFIG_SAVE),
 	};
 	*GUIMenuItemListAppend(&menu.items) = (struct GUIMenuItem) {
-		.title = "Cancel",
+		.title = "[Cancel]",
 		.data = GUI_V_V,
 	};
 	enum GUIMenuExitReason reason;

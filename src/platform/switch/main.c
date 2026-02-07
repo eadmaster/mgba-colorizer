@@ -287,8 +287,8 @@ static void _setup(struct mGUIRunner* runner) {
 	_mapKey(&runner->core->inputMap, AUTO_INPUT, HidNpadButton_Down, GBA_KEY_DOWN);
 	_mapKey(&runner->core->inputMap, AUTO_INPUT, HidNpadButton_Left, GBA_KEY_LEFT);
 	_mapKey(&runner->core->inputMap, AUTO_INPUT, HidNpadButton_Right, GBA_KEY_RIGHT);
-	_mapKey(&runner->core->inputMap, AUTO_INPUT, HidNpadButton_L, GBA_KEY_L);
-	_mapKey(&runner->core->inputMap, AUTO_INPUT, HidNpadButton_R, GBA_KEY_R);
+	_mapKey(&runner->core->inputMap, AUTO_INPUT, HidNpadButton_ZL, GBA_KEY_L);
+	_mapKey(&runner->core->inputMap, AUTO_INPUT, HidNpadButton_ZR, GBA_KEY_R);
 
 	int fakeBool = false;
 	if (runner->core->supportsFeature(runner->core, mCORE_FEATURE_OPENGL)) {
