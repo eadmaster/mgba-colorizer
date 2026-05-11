@@ -16,12 +16,13 @@ namespace QGBA {
 class CoreController;
 
 class AssetTile : public AssetInfo {
-Q_OBJECT
+	Q_OBJECT
 
 public:
 	AssetTile(QWidget* parent = nullptr);
 	void setController(std::shared_ptr<CoreController>);
 	QImage activeTile() const { return m_activeTile; }
+	const char* activeTileHex() const { return m_hex; }
 
 public slots:
 	void setPalette(int);
@@ -41,6 +42,7 @@ private:
 	mTileCache* m_tileCaches[2];
 	int m_paletteId = 0;
 	int m_index = 0;
+	char m_hex[129];
 
 	int m_addressWidth;
 	int m_addressBase;
@@ -50,7 +52,7 @@ private:
 	bool m_flipH = false;
 	bool m_flipV = false;
 
-	QMap<QString, QLabel*> m_customProperties;
+	// QMap<QString, QLabel*> m_customProperties;
 	QImage m_activeTile;
 };
 

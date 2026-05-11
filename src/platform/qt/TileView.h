@@ -27,6 +27,7 @@ public slots:
 	void exportTile();
 	void copyTiles();
 	void copyTile();
+	void copyTileHex();
 
 private:
 #ifdef M_CORE_GBA

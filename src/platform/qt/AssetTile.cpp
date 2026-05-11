@@ -9,6 +9,7 @@
 #include "GBAApp.h"
 
 #include <QHBoxLayout>
+#include <cstdio>
 
 #include <mgba/core/interface.h>
 #ifdef M_CORE_GBA
@@ -21,8 +22,7 @@
 using namespace QGBA;
 
 AssetTile::AssetTile(QWidget* parent)
-	: AssetInfo(parent)
-{
+    : AssetInfo(parent) {
 	m_ui.setupUi(this);
 
 	m_ui.preview->setDimensions(QSize(8, 8));
@@ -39,6 +39,8 @@ AssetTile::AssetTile(QWidget* parent)
 	m_ui.r->setFont(font);
 	m_ui.g->setFont(font);
 	m_ui.b->setFont(font);
+
+	addCustomProperty("hex", tr("Hex"));
 }
 
 int AssetTile::customLocation(const QString&) {
@@ -104,9 +106,9 @@ void AssetTile::selectIndex(int index) {
 	m_ui.tileId->setText(QString::number(dispIndex));
 	m_ui.paletteId->setText(QString::number(paletteId));
 	m_ui.address->setText(QString("%0%1%2")
-		.arg(m_addressWidth == 4 ? index >= m_boundary / 2 : 0)
-		.arg(m_addressWidth == 4 ? ":" : "x")
-		.arg(dispIndex * bpp | base, m_addressWidth, 16, QChar('0')));
+	                          .arg(m_addressWidth == 4 ? index >= m_boundary / 2 : 0)
+	                          .arg(m_addressWidth == 4 ? ":" : "x")
+	                          .arg(dispIndex * bpp | base, m_addressWidth, 16, QChar('0')));
 	int flip = 0;
 	if (m_flipH) {
 		flip |= 007;
@@ -121,6 +123,21 @@ void AssetTile::selectIndex(int index) {
 
 	QImage tile(reinterpret_cast<const uchar*>(data), 8, 8, QImage::Format_ARGB32);
 	m_activeTile = tile.rgbSwapped();
+
+	const uint8_t* vram = reinterpret_cast<const uint8_t*>(mTileCacheGetVRAM(tileCache, index));
+	int bppBytes = (8 * bpp) / 8;
+	QString hexStr;
+	for (int i = 0; i < bppBytes; ++i) {
+		snprintf(&m_hex[i * 2], 3, "%02X", vram[i]);
+		hexStr += QString("%1").arg(vram[i], 2, 16, QChar('0')).toUpper();
+		if ((i + 1) % 16 == 0) {
+			hexStr += "\n";
+		} else if ((i + 1) % 4 == 0) {
+			hexStr += " ";
+		}
+	}
+	m_hex[bppBytes * 2] = '\0';
+	setCustomProperty("hex", hexStr.trimmed());
 }
 
 void AssetTile::setFlip(bool h, bool v) {

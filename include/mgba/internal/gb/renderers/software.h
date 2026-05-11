@@ -8,6 +8,8 @@
 
 #include <mgba-util/common.h>
 
+#define PAL_DIRECT_COLOR 0x10000000
+
 CXX_GUARD_START
 
 #include <mgba/core/core.h>
@@ -26,7 +28,7 @@ struct GBVideoSoftwareRenderer {
 	int outputBufferStride;
 
 	// TODO: Implement the pixel FIFO
-	uint16_t row[GB_VIDEO_HORIZONTAL_PIXELS + 8];
+	uint32_t row[GB_VIDEO_HORIZONTAL_PIXELS + 8];
 
 	mColor palette[192];
 	uint8_t lookup[192];

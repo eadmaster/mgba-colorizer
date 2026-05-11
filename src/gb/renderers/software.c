@@ -5,11 +5,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 #include <mgba/internal/gb/renderers/software.h>
 
+#include <ctype.h>
+#include <mgba-util/math.h>
+#include <mgba-util/memory.h>
 #include <mgba/core/cache-set.h>
 #include <mgba/internal/gb/io.h>
 #include <mgba/internal/gb/renderers/cache-set.h>
-#include <mgba-util/math.h>
-#include <mgba-util/memory.h>
 
 #define PAL_BG 0
 #define PAL_OBJ 0x20
@@ -22,7 +23,8 @@
 
 static void GBVideoSoftwareRendererInit(struct GBVideoRenderer* renderer, enum GBModel model, bool borders);
 static void GBVideoSoftwareRendererDeinit(struct GBVideoRenderer* renderer);
-static uint8_t GBVideoSoftwareRendererWriteVideoRegister(struct GBVideoRenderer* renderer, uint16_t address, uint8_t value);
+static uint8_t GBVideoSoftwareRendererWriteVideoRegister(struct GBVideoRenderer* renderer, uint16_t address,
+                                                         uint8_t value);
 static void GBVideoSoftwareRendererWriteSGBPacket(struct GBVideoRenderer* renderer, uint8_t* data);
 static void GBVideoSoftwareRendererWritePalette(struct GBVideoRenderer* renderer, int index, uint16_t value);
 static void GBVideoSoftwareRendererWriteVRAM(struct GBVideoRenderer* renderer, uint16_t address);
@@ -34,8 +36,11 @@ static void GBVideoSoftwareRendererEnableSGBBorder(struct GBVideoRenderer* rende
 static void GBVideoSoftwareRendererGetPixels(struct GBVideoRenderer* renderer, size_t* stride, const void** pixels);
 static void GBVideoSoftwareRendererPutPixels(struct GBVideoRenderer* renderer, size_t stride, const void* pixels);
 
-static void GBVideoSoftwareRendererDrawBackground(struct GBVideoSoftwareRenderer* renderer, uint8_t* maps, int startX, int endX, int sx, int sy, bool highlight);
-static void GBVideoSoftwareRendererDrawObj(struct GBVideoSoftwareRenderer* renderer, struct GBVideoRendererSprite* obj, int startX, int endX, int y);
+static void GBVideoSoftwareRendererDrawBackground(struct GBVideoSoftwareRenderer* renderer, uint8_t* maps, int startX,
+                                                  int endX, int sx, int sy, bool highlight);
+static void GBVideoSoftwareRendererDrawObj(struct GBVideoSoftwareRenderer* renderer, struct GBVideoRendererSprite* obj,
+                                           int startX, int endX, int y);
+static void GBLoadPaletteOverrides(const char* filename);
 
 static void _clearScreen(struct GBVideoSoftwareRenderer* renderer) {
 	size_t sgbOffset = 0;
@@ -114,7 +119,8 @@ static void _regenerateSGBBorder(struct GBVideoSoftwareRenderer* renderer) {
 				xFlip = 7;
 			}
 			for (i = 7; i >= 0; --i) {
-				colorSelector = (tileData[0] >> i & 0x1) << 0 | (tileData[1] >> i & 0x1) << 1 | (tileData[2] >> i & 0x1) << 2 | (tileData[3] >> i & 0x1) << 3;
+				colorSelector = (tileData[0] >> i & 0x1) << 0 | (tileData[1] >> i & 0x1) << 1 |
+				    (tileData[2] >> i & 0x1) << 2 | (tileData[3] >> i & 0x1) << 3;
 				renderer->outputBuffer[(base + 7 - i) ^ xFlip] = renderer->palette[paletteBase | colorSelector];
 			}
 		}
@@ -257,6 +263,8 @@ static void GBVideoSoftwareRendererInit(struct GBVideoRenderer* renderer, enum G
 	memset(softwareRenderer->sgbBorderMask, 0, sizeof(softwareRenderer->sgbBorderMask));
 
 	softwareRenderer->lastHighlightAmount = 0;
+
+	GBLoadPaletteOverrides("custom.pal"); // TODO: use current content filename
 }
 
 static void GBVideoSoftwareRendererDeinit(struct GBVideoRenderer* renderer) {
@@ -264,7 +272,8 @@ static void GBVideoSoftwareRendererDeinit(struct GBVideoRenderer* renderer) {
 	UNUSED(softwareRenderer);
 }
 
-static void GBVideoSoftwareRendererUpdateWindow(struct GBVideoSoftwareRenderer* renderer, bool before, bool after, uint8_t oldWy) {
+static void GBVideoSoftwareRendererUpdateWindow(struct GBVideoSoftwareRenderer* renderer, bool before, bool after,
+                                                uint8_t oldWy) {
 	if (renderer->lastY >= GB_VIDEO_VERTICAL_PIXELS || !(after || before)) {
 		return;
 	}
@@ -291,7 +300,8 @@ static void GBVideoSoftwareRendererUpdateWindow(struct GBVideoSoftwareRenderer* 
 	}
 }
 
-static uint8_t GBVideoSoftwareRendererWriteVideoRegister(struct GBVideoRenderer* renderer, uint16_t address, uint8_t value) {
+static uint8_t GBVideoSoftwareRendererWriteVideoRegister(struct GBVideoRenderer* renderer, uint16_t address,
+                                                         uint8_t value) {
 	struct GBVideoSoftwareRenderer* softwareRenderer = (struct GBVideoSoftwareRenderer*) renderer;
 	if (renderer->cache) {
 		GBVideoCacheWriteVideoRegister(renderer->cache, address, value);
@@ -411,7 +421,6 @@ static void GBVideoSoftwareRendererWriteSGBPacket(struct GBVideoRenderer* render
 				for (i = 0; i < GB_VIDEO_HORIZONTAL_PIXELS / 8; ++i) {
 					_setAttribute(renderer->sgbAttributes, i, attrX, pDiv);
 				}
-
 			}
 			for (; j < GB_VIDEO_VERTICAL_PIXELS / 8; ++j) {
 				for (i = 0; i < GB_VIDEO_HORIZONTAL_PIXELS / 8; ++i) {
@@ -432,7 +441,6 @@ static void GBVideoSoftwareRendererWriteSGBPacket(struct GBVideoRenderer* render
 				for (i = 0; i < GB_VIDEO_VERTICAL_PIXELS / 8; ++i) {
 					_setAttribute(renderer->sgbAttributes, attrX, i, pDiv);
 				}
-
 			}
 			for (; j < GB_VIDEO_HORIZONTAL_PIXELS / 8; ++j) {
 				for (i = 0; i < GB_VIDEO_VERTICAL_PIXELS / 8; ++i) {
@@ -531,7 +539,9 @@ static void GBVideoSoftwareRendererWritePalette(struct GBVideoRenderer* renderer
 	}
 	softwareRenderer->palette[index] = color;
 	if (index < PAL_SGB_BORDER && (index < PAL_OBJ || (index & 3))) {
-		softwareRenderer->palette[index + PAL_HIGHLIGHT] = mColorMix5Bit(0x10 - softwareRenderer->lastHighlightAmount, color, softwareRenderer->lastHighlightAmount, renderer->highlightColor);
+		softwareRenderer->palette[index + PAL_HIGHLIGHT] =
+		    mColorMix5Bit(0x10 - softwareRenderer->lastHighlightAmount, color, softwareRenderer->lastHighlightAmount,
+		                  renderer->highlightColor);
 	}
 
 	if (softwareRenderer->model & GB_MODEL_SGB && !index && GBRegisterLCDCIsEnable(softwareRenderer->lcdc)) {
@@ -625,18 +635,24 @@ static void GBVideoSoftwareRendererDrawRange(struct GBVideoRenderer* renderer, i
 		if (GBRegisterLCDCIsWindow(softwareRenderer->lcdc) && wy == y && wx <= endX) {
 			softwareRenderer->hasWindow = true;
 		}
-		if (GBRegisterLCDCIsWindow(softwareRenderer->lcdc) && softwareRenderer->hasWindow && wx <= endX && !softwareRenderer->d.disableWIN) {
+		if (GBRegisterLCDCIsWindow(softwareRenderer->lcdc) && softwareRenderer->hasWindow && wx <= endX &&
+		    !softwareRenderer->d.disableWIN) {
 			if (wx > 0 && !softwareRenderer->d.disableBG) {
-				GBVideoSoftwareRendererDrawBackground(softwareRenderer, maps, startX, wx, softwareRenderer->scx - softwareRenderer->offsetScx, softwareRenderer->scy + y - softwareRenderer->offsetScy, renderer->highlightBG);
+				GBVideoSoftwareRendererDrawBackground(
+				    softwareRenderer, maps, startX, wx, softwareRenderer->scx - softwareRenderer->offsetScx,
+				    softwareRenderer->scy + y - softwareRenderer->offsetScy, renderer->highlightBG);
 			}
 
 			maps = &softwareRenderer->d.vram[GB_BASE_MAP];
 			if (GBRegisterLCDCIsWindowTileMap(softwareRenderer->lcdc)) {
 				maps += GB_SIZE_MAP;
 			}
-			GBVideoSoftwareRendererDrawBackground(softwareRenderer, maps, wx, endX, -wx - softwareRenderer->offsetWx, y - wy - softwareRenderer->offsetWy, renderer->highlightWIN);
+			GBVideoSoftwareRendererDrawBackground(softwareRenderer, maps, wx, endX, -wx - softwareRenderer->offsetWx,
+			                                      y - wy - softwareRenderer->offsetWy, renderer->highlightWIN);
 		} else if (!softwareRenderer->d.disableBG) {
-			GBVideoSoftwareRendererDrawBackground(softwareRenderer, maps, startX, endX, softwareRenderer->scx - softwareRenderer->offsetScx, softwareRenderer->scy + y - softwareRenderer->offsetScy, renderer->highlightBG);
+			GBVideoSoftwareRendererDrawBackground(
+			    softwareRenderer, maps, startX, endX, softwareRenderer->scx - softwareRenderer->offsetScx,
+			    softwareRenderer->scy + y - softwareRenderer->offsetScy, renderer->highlightBG);
 		}
 	} else if (!softwareRenderer->d.disableBG) {
 		memset(&softwareRenderer->row[startX], 0, (endX - startX) * sizeof(softwareRenderer->row[0]));
@@ -660,7 +676,8 @@ static void GBVideoSoftwareRendererDrawRange(struct GBVideoRenderer* renderer, i
 			if (i >= PAL_OBJ && (i & 3) == 0) {
 				continue;
 			}
-			softwareRenderer->palette[i + PAL_HIGHLIGHT] = mColorMix5Bit(0x10 - highlightAmount, softwareRenderer->palette[i], highlightAmount, renderer->highlightColor);
+			softwareRenderer->palette[i + PAL_HIGHLIGHT] = mColorMix5Bit(
+			    0x10 - highlightAmount, softwareRenderer->palette[i], highlightAmount, renderer->highlightColor);
 		}
 	}
 
@@ -680,7 +697,12 @@ static void GBVideoSoftwareRendererDrawRange(struct GBVideoRenderer* renderer, i
 			p <<= 2;
 		}
 		for (; x < ((startX + 7) & ~7) && x < endX; ++x) {
-			row[x] = softwareRenderer->palette[p | softwareRenderer->lookup[softwareRenderer->row[x] & OBJ_PRIO_MASK]];
+			uint32_t pixel = softwareRenderer->row[x];
+			if (pixel & PAL_DIRECT_COLOR) {
+				row[x] = pixel & ~PAL_DIRECT_COLOR;
+			} else {
+				row[x] = softwareRenderer->palette[p | softwareRenderer->lookup[pixel & OBJ_PRIO_MASK]];
+			}
 		}
 		for (; x + 7 < (endX & ~7); x += 8) {
 			if ((softwareRenderer->model & (GB_MODEL_SGB | GB_MODEL_CGB)) == GB_MODEL_SGB) {
@@ -689,14 +711,41 @@ static void GBVideoSoftwareRendererDrawRange(struct GBVideoRenderer* renderer, i
 				p &= 3;
 				p <<= 2;
 			}
-			row[x + 0] = softwareRenderer->palette[p | softwareRenderer->lookup[softwareRenderer->row[x] & OBJ_PRIO_MASK]];
-			row[x + 1] = softwareRenderer->palette[p | softwareRenderer->lookup[softwareRenderer->row[x + 1] & OBJ_PRIO_MASK]];
-			row[x + 2] = softwareRenderer->palette[p | softwareRenderer->lookup[softwareRenderer->row[x + 2] & OBJ_PRIO_MASK]];
-			row[x + 3] = softwareRenderer->palette[p | softwareRenderer->lookup[softwareRenderer->row[x + 3] & OBJ_PRIO_MASK]];
-			row[x + 4] = softwareRenderer->palette[p | softwareRenderer->lookup[softwareRenderer->row[x + 4] & OBJ_PRIO_MASK]];
-			row[x + 5] = softwareRenderer->palette[p | softwareRenderer->lookup[softwareRenderer->row[x + 5] & OBJ_PRIO_MASK]];
-			row[x + 6] = softwareRenderer->palette[p | softwareRenderer->lookup[softwareRenderer->row[x + 6] & OBJ_PRIO_MASK]];
-			row[x + 7] = softwareRenderer->palette[p | softwareRenderer->lookup[softwareRenderer->row[x + 7] & OBJ_PRIO_MASK]];
+			// printf("p=%x\n", p);
+			// printf("i=%x\n", softwareRenderer->lookup[softwareRenderer->row[x] & OBJ_PRIO_MASK]);
+			uint32_t pixel;
+			pixel = softwareRenderer->row[x + 0];
+			row[x + 0] = (pixel & PAL_DIRECT_COLOR) ?
+			    (pixel & ~PAL_DIRECT_COLOR) :
+			    softwareRenderer->palette[p | softwareRenderer->lookup[pixel & OBJ_PRIO_MASK]];
+			pixel = softwareRenderer->row[x + 1];
+			row[x + 1] = (pixel & PAL_DIRECT_COLOR) ?
+			    (pixel & ~PAL_DIRECT_COLOR) :
+			    softwareRenderer->palette[p | softwareRenderer->lookup[pixel & OBJ_PRIO_MASK]];
+			pixel = softwareRenderer->row[x + 2];
+			row[x + 2] = (pixel & PAL_DIRECT_COLOR) ?
+			    (pixel & ~PAL_DIRECT_COLOR) :
+			    softwareRenderer->palette[p | softwareRenderer->lookup[pixel & OBJ_PRIO_MASK]];
+			pixel = softwareRenderer->row[x + 3];
+			row[x + 3] = (pixel & PAL_DIRECT_COLOR) ?
+			    (pixel & ~PAL_DIRECT_COLOR) :
+			    softwareRenderer->palette[p | softwareRenderer->lookup[pixel & OBJ_PRIO_MASK]];
+			pixel = softwareRenderer->row[x + 4];
+			row[x + 4] = (pixel & PAL_DIRECT_COLOR) ?
+			    (pixel & ~PAL_DIRECT_COLOR) :
+			    softwareRenderer->palette[p | softwareRenderer->lookup[pixel & OBJ_PRIO_MASK]];
+			pixel = softwareRenderer->row[x + 5];
+			row[x + 5] = (pixel & PAL_DIRECT_COLOR) ?
+			    (pixel & ~PAL_DIRECT_COLOR) :
+			    softwareRenderer->palette[p | softwareRenderer->lookup[pixel & OBJ_PRIO_MASK]];
+			pixel = softwareRenderer->row[x + 6];
+			row[x + 6] = (pixel & PAL_DIRECT_COLOR) ?
+			    (pixel & ~PAL_DIRECT_COLOR) :
+			    softwareRenderer->palette[p | softwareRenderer->lookup[pixel & OBJ_PRIO_MASK]];
+			pixel = softwareRenderer->row[x + 7];
+			row[x + 7] = (pixel & PAL_DIRECT_COLOR) ?
+			    (pixel & ~PAL_DIRECT_COLOR) :
+			    softwareRenderer->palette[p | softwareRenderer->lookup[pixel & OBJ_PRIO_MASK]];
 		}
 		if ((softwareRenderer->model & (GB_MODEL_SGB | GB_MODEL_CGB)) == GB_MODEL_SGB) {
 			p = softwareRenderer->d.sgbAttributes[(x >> 5) + 5 * (y >> 3)];
@@ -705,7 +754,12 @@ static void GBVideoSoftwareRendererDrawRange(struct GBVideoRenderer* renderer, i
 			p <<= 2;
 		}
 		for (; x < endX; ++x) {
-			row[x] = softwareRenderer->palette[p | softwareRenderer->lookup[softwareRenderer->row[x] & OBJ_PRIO_MASK]];
+			uint32_t pixel = softwareRenderer->row[x];
+			if (pixel & PAL_DIRECT_COLOR) {
+				row[x] = pixel & ~PAL_DIRECT_COLOR;
+			} else {
+				row[x] = softwareRenderer->palette[p | softwareRenderer->lookup[pixel & OBJ_PRIO_MASK]];
+			}
 		}
 		if (softwareRenderer->sgbBorderMask[y >> 3]) {
 			uint32_t borderMask = softwareRenderer->sgbBorderMask[y >> 3];
@@ -740,7 +794,8 @@ static void GBVideoSoftwareRendererDrawRange(struct GBVideoRenderer* renderer, i
 				}
 				int i;
 				for (i = 7; i >= 0; --i) {
-					colorSelector = (tileData[0] >> i & 0x1) << 0 | (tileData[1] >> i & 0x1) << 1 | (tileData[2] >> i & 0x1) << 2 | (tileData[3] >> i & 0x1) << 3;
+					colorSelector = (tileData[0] >> i & 0x1) << 0 | (tileData[1] >> i & 0x1) << 1 |
+					    (tileData[2] >> i & 0x1) << 2 | (tileData[3] >> i & 0x1) << 3;
 					if (colorSelector) {
 						row[(x + 7 - i) ^ flip] = softwareRenderer->palette[paletteBase | colorSelector];
 					}
@@ -909,7 +964,94 @@ static void GBVideoSoftwareRendererEnableSGBBorder(struct GBVideoRenderer* rende
 	}
 }
 
-static void GBVideoSoftwareRendererDrawBackground(struct GBVideoSoftwareRenderer* renderer, uint8_t* maps, int startX, int endX, int sx, int sy, bool highlight) {
+#define HEX_KEY_LEN 33 // 16 bytes * 2 hex chars + null terminator
+#define CACHE_SIZE 4096 // Adjust based on your memory constraints
+
+typedef struct {
+	char hex_key[HEX_KEY_LEN];
+	uint32_t palette_colors[4]; // The actual RGBA colors for this tile
+	bool occupied;
+} TilePaletteEntry;
+
+static TilePaletteEntry global_tile_cache[CACHE_SIZE]; // TODO: use an hash table
+static int global_tile_cache_index = 0;
+
+static void GBLoadPaletteOverrides(const char* filename) {
+	FILE* file = fopen(filename, "r");
+	if (!file)
+		return;
+
+	char line[128];
+	while (fgets(line, sizeof(line), file)) {
+		char type[16]; // "Background" or "Sprite"
+		char hex[33]; // The 16-byte tile hex
+		int color_idx; // 0, 1, 2, or 3
+		uint32_t color_val;
+
+		// Parse: Background_FFFF...FFFF_0=16306328
+		if (sscanf(line, "%[^_]_%32[^_]_%d=%u", type, hex, &color_idx, &color_val) == 4) {
+			if (color_idx < 0 || color_idx > 3)
+				continue;
+
+			for (int i = 0; hex[i]; i++)
+				hex[i] = tolower(hex[i]);
+
+			TilePaletteEntry* entry = NULL;
+
+			// Check if we already have an entry for this hex string
+			for (int i = 0; i < global_tile_cache_index; i++) {
+				if (strcmp(global_tile_cache[i].hex_key, hex) == 0) {
+					entry = &global_tile_cache[i];
+					// printf("duplicate entry found for %s\n", hex);
+					break;
+				}
+			}
+
+			// If not found and we have space, create a new entry
+			if (!entry) {
+				if (global_tile_cache_index < CACHE_SIZE) {
+					entry = &global_tile_cache[global_tile_cache_index++];
+					strcpy(entry->hex_key, hex);
+					entry->occupied = true;
+				} else {
+					printf("cache full, entry skipped: %s\n", hex);
+				}
+			}
+
+			// 3. Update the specific color index (works for both new and existing entries)
+			if (entry) {
+				// Ensure color is in native format, opaque, and flagged as direct
+				mColor native_color = M_RGB8_TO_NATIVE(color_val) | M_COLOR_ALPHA;
+				entry->palette_colors[color_idx] = native_color | PAL_DIRECT_COLOR;
+			}
+		}
+	}
+	fclose(file);
+}
+
+static uint32_t* GetPaletteFromTileData(uint8_t* tile_ptr) {
+	char current_hex[HEX_KEY_LEN];
+	static const char hex_chars[] = "0123456789abcdef";
+
+	for (int i = 0; i < 16; i++) {
+		uint8_t b = tile_ptr[i];
+		current_hex[i * 2] = hex_chars[b >> 4];
+		current_hex[i * 2 + 1] = hex_chars[b & 0x0F];
+	}
+	current_hex[32] = '\0';
+
+	for (int slot = 0; slot < CACHE_SIZE; slot++)
+		if (global_tile_cache[slot].occupied && strcmp(global_tile_cache[slot].hex_key, current_hex) == 0) {
+			printf("MATCH found for %s\n", current_hex);
+			return global_tile_cache[slot].palette_colors;
+		}
+
+	// printf("no entry found for %s\n", current_hex);
+	return 0; // Default to palette 0 if nothing found
+}
+
+static void GBVideoSoftwareRendererDrawBackground(struct GBVideoSoftwareRenderer* renderer, uint8_t* maps, int startX,
+                                                  int endX, int sx, int sy, bool highlight) {
 	uint8_t* data = renderer->d.vram;
 	uint8_t* attr = &maps[GB_SIZE_VRAM_BANK0];
 	if (!GBRegisterLCDCIsTileData(renderer->lcdc)) {
@@ -935,6 +1077,7 @@ static void GBVideoSoftwareRendererDrawBackground(struct GBVideoSoftwareRenderer
 				bgTile = ((int8_t*) maps)[topX + topY];
 			}
 			int p = highlight ? PAL_HIGHLIGHT_BG : PAL_BG;
+
 			if (renderer->model >= GB_MODEL_CGB) {
 				GBObjAttributes attrs = attr[topX + topY];
 				p |= GBObjAttributesGetCGBPalette(attrs) * 4;
@@ -970,9 +1113,13 @@ static void GBVideoSoftwareRendererDrawBackground(struct GBVideoSoftwareRenderer
 			bgTile = ((int8_t*) maps)[topX + topY];
 		}
 		int p = highlight ? PAL_HIGHLIGHT_BG : PAL_BG;
+		// if using custom palette
+		// p |= 0x14;
+
 		if (renderer->model >= GB_MODEL_CGB) {
 			GBObjAttributes attrs = attr[topX + topY];
 			p |= GBObjAttributesGetCGBPalette(attrs) * 4;
+			// printf("pal=%x\n", GBObjAttributesGetCGBPalette(attrs) * 4);
 			if (GBObjAttributesIsPriority(attrs) && GBRegisterLCDCIsBgEnable(renderer->lcdc)) {
 				p |= OBJ_PRIORITY;
 			}
@@ -996,20 +1143,37 @@ static void GBVideoSoftwareRendererDrawBackground(struct GBVideoSoftwareRenderer
 				continue;
 			}
 		}
+
 		uint8_t tileDataLower = localData[(bgTile * 8 + localY) * 2];
 		uint8_t tileDataUpper = localData[(bgTile * 8 + localY) * 2 + 1];
-		renderer->row[x + 7] = p | ((tileDataUpper & 1) << 1) | (tileDataLower & 1);
-		renderer->row[x + 6] = p | (tileDataUpper & 2) | ((tileDataLower & 2) >> 1);
-		renderer->row[x + 5] = p | ((tileDataUpper & 4) >> 1) | ((tileDataLower & 4) >> 2);
-		renderer->row[x + 4] = p | ((tileDataUpper & 8) >> 2) | ((tileDataLower & 8) >> 3);
-		renderer->row[x + 3] = p | ((tileDataUpper & 16) >> 3) | ((tileDataLower & 16) >> 4);
-		renderer->row[x + 2] = p | ((tileDataUpper & 32) >> 4) | ((tileDataLower & 32) >> 5);
-		renderer->row[x + 1] = p | ((tileDataUpper & 64) >> 5) | ((tileDataLower & 64) >> 6);
-		renderer->row[x + 0] = p | ((tileDataUpper & 128) >> 6) | ((tileDataLower & 128) >> 7);
+
+		// palette override
+		uint8_t* tile_ptr = localData + (bgTile * 16);
+		uint32_t* custom_pal = GetPaletteFromTileData(tile_ptr);
+		if (custom_pal) {
+			renderer->row[x + 7] = custom_pal[((tileDataUpper & 1) << 1) | (tileDataLower & 1)];
+			renderer->row[x + 6] = custom_pal[((tileDataUpper & 2) >> 0) | ((tileDataLower & 2) >> 1)];
+			renderer->row[x + 5] = custom_pal[((tileDataUpper & 4) >> 1) | ((tileDataLower & 4) >> 2)];
+			renderer->row[x + 4] = custom_pal[((tileDataUpper & 8) >> 2) | ((tileDataLower & 8) >> 3)];
+			renderer->row[x + 3] = custom_pal[((tileDataUpper & 16) >> 3) | ((tileDataLower & 16) >> 4)];
+			renderer->row[x + 2] = custom_pal[((tileDataUpper & 32) >> 4) | ((tileDataLower & 32) >> 5)];
+			renderer->row[x + 1] = custom_pal[((tileDataUpper & 64) >> 5) | ((tileDataLower & 64) >> 6)];
+			renderer->row[x + 0] = custom_pal[((tileDataUpper & 128) >> 6) | ((tileDataLower & 128) >> 7)];
+		} else {
+			renderer->row[x + 7] = p | ((tileDataUpper & 1) << 1) | (tileDataLower & 1);
+			renderer->row[x + 6] = p | (tileDataUpper & 2) | ((tileDataLower & 2) >> 1);
+			renderer->row[x + 5] = p | ((tileDataUpper & 4) >> 1) | ((tileDataLower & 4) >> 2);
+			renderer->row[x + 4] = p | ((tileDataUpper & 8) >> 2) | ((tileDataLower & 8) >> 3);
+			renderer->row[x + 3] = p | ((tileDataUpper & 16) >> 3) | ((tileDataLower & 16) >> 4);
+			renderer->row[x + 2] = p | ((tileDataUpper & 32) >> 4) | ((tileDataLower & 32) >> 5);
+			renderer->row[x + 1] = p | ((tileDataUpper & 64) >> 5) | ((tileDataLower & 64) >> 6);
+			renderer->row[x + 0] = p | ((tileDataUpper & 128) >> 6) | ((tileDataLower & 128) >> 7);
+		}
 	}
 }
 
-static void GBVideoSoftwareRendererDrawObj(struct GBVideoSoftwareRenderer* renderer, struct GBVideoRendererSprite* obj, int startX, int endX, int y) {
+static void GBVideoSoftwareRendererDrawObj(struct GBVideoSoftwareRenderer* renderer, struct GBVideoRendererSprite* obj,
+                                           int startX, int endX, int y) {
 	int objX = obj->obj.x + renderer->objOffsetX;
 	int ix = objX - 8;
 	if (endX < ix || startX >= ix + 8) {
@@ -1056,10 +1220,16 @@ static void GBVideoSoftwareRendererDrawObj(struct GBVideoSoftwareRenderer* rende
 		}
 	} else {
 		p |= (GBObjAttributesGetPalette(obj->obj.attr) + 8) * 4;
+		// printf("p=%x\n", GBObjAttributesGetPalette(obj->obj.attr));
+		// p |= 0x2;
 	}
+
 	int bottomX;
 	int x = startX;
 	int objTile = obj->obj.tile + tileOffset;
+	// Palette override check
+	uint8_t* tile_ptr = data + (objTile * 16);
+	uint32_t* custom_pal = GetPaletteFromTileData(tile_ptr);
 	if ((x - objX) & 7) {
 		for (; x < endX; ++x) {
 			if (GBObjAttributesIsXFlip(obj->obj.attr)) {
@@ -1073,7 +1243,10 @@ static void GBVideoSoftwareRendererDrawObj(struct GBVideoSoftwareRenderer* rende
 			tileDataLower >>= bottomX;
 			unsigned current = renderer->row[x];
 			if (((tileDataUpper | tileDataLower) & 1) && !(current & mask) && (current & mask2) <= OBJ_PRIORITY) {
-				renderer->row[x] = p | ((tileDataUpper & 1) << 1) | (tileDataLower & 1);
+				if (!custom_pal)
+					renderer->row[x] = p | ((tileDataUpper & 1) << 1) | (tileDataLower & 1);
+				else
+					renderer->row[x] = custom_pal[((tileDataUpper & 1) << 1) | (tileDataLower & 1)];
 			}
 		}
 	} else if (GBObjAttributesIsXFlip(obj->obj.attr)) {
@@ -1082,35 +1255,59 @@ static void GBVideoSoftwareRendererDrawObj(struct GBVideoSoftwareRenderer* rende
 		unsigned current;
 		current = renderer->row[x];
 		if (((tileDataUpper | tileDataLower) & 1) && !(current & mask) && (current & mask2) <= OBJ_PRIORITY) {
-			renderer->row[x] = p | ((tileDataUpper & 1) << 1) | (tileDataLower & 1);
+			if (!custom_pal)
+				renderer->row[x] = p | ((tileDataUpper & 1) << 1) | (tileDataLower & 1);
+			else
+				renderer->row[x] = custom_pal[((tileDataUpper & 1) << 1) | (tileDataLower & 1)];
 		}
 		current = renderer->row[x + 1];
 		if (((tileDataUpper | tileDataLower) & 2) && !(current & mask) && (current & mask2) <= OBJ_PRIORITY) {
-			renderer->row[x + 1] = p | (tileDataUpper & 2) | ((tileDataLower & 2) >> 1);
+			if (!custom_pal)
+				renderer->row[x + 1] = p | (tileDataUpper & 2) | ((tileDataLower & 2) >> 1);
+			else
+				renderer->row[x + 1] = custom_pal[(tileDataUpper & 2) | ((tileDataLower & 2) >> 1)];
 		}
 		current = renderer->row[x + 2];
 		if (((tileDataUpper | tileDataLower) & 4) && !(current & mask) && (current & mask2) <= OBJ_PRIORITY) {
-			renderer->row[x + 2] = p | ((tileDataUpper & 4) >> 1) | ((tileDataLower & 4) >> 2);
+			if (!custom_pal)
+				renderer->row[x + 2] = p | ((tileDataUpper & 4) >> 1) | ((tileDataLower & 4) >> 2);
+			else
+				renderer->row[x + 2] = custom_pal[((tileDataUpper & 4) >> 1) | ((tileDataLower & 4) >> 2)];
 		}
 		current = renderer->row[x + 3];
 		if (((tileDataUpper | tileDataLower) & 8) && !(current & mask) && (current & mask2) <= OBJ_PRIORITY) {
-			renderer->row[x + 3] = p | ((tileDataUpper & 8) >> 2) | ((tileDataLower & 8) >> 3);
+			if (!custom_pal)
+				renderer->row[x + 3] = p | ((tileDataUpper & 8) >> 2) | ((tileDataLower & 8) >> 3);
+			else
+				renderer->row[x + 3] = custom_pal[((tileDataUpper & 8) >> 2) | ((tileDataLower & 8) >> 3)];
 		}
 		current = renderer->row[x + 4];
 		if (((tileDataUpper | tileDataLower) & 16) && !(current & mask) && (current & mask2) <= OBJ_PRIORITY) {
-			renderer->row[x + 4] = p | ((tileDataUpper & 16) >> 3) | ((tileDataLower & 16) >> 4);
+			if (!custom_pal)
+				renderer->row[x + 4] = p | ((tileDataUpper & 16) >> 3) | ((tileDataLower & 16) >> 4);
+			else
+				renderer->row[x + 4] = custom_pal[((tileDataUpper & 16) >> 3) | ((tileDataLower & 16) >> 4)];
 		}
 		current = renderer->row[x + 5];
 		if (((tileDataUpper | tileDataLower) & 32) && !(current & mask) && (current & mask2) <= OBJ_PRIORITY) {
-			renderer->row[x + 5] = p | ((tileDataUpper & 32) >> 4) | ((tileDataLower & 32) >> 5);
+			if (!custom_pal)
+				renderer->row[x + 5] = p | ((tileDataUpper & 32) >> 4) | ((tileDataLower & 32) >> 5);
+			else
+				renderer->row[x + 5] = custom_pal[((tileDataUpper & 32) >> 4) | ((tileDataLower & 32) >> 5)];
 		}
 		current = renderer->row[x + 6];
 		if (((tileDataUpper | tileDataLower) & 64) && !(current & mask) && (current & mask2) <= OBJ_PRIORITY) {
-			renderer->row[x + 6] = p | ((tileDataUpper & 64) >> 5) | ((tileDataLower & 64) >> 6);
+			if (!custom_pal)
+				renderer->row[x + 6] = p | ((tileDataUpper & 64) >> 5) | ((tileDataLower & 64) >> 6);
+			else
+				renderer->row[x + 6] = custom_pal[((tileDataUpper & 64) >> 5) | ((tileDataLower & 64) >> 6)];
 		}
 		current = renderer->row[x + 7];
 		if (((tileDataUpper | tileDataLower) & 128) && !(current & mask) && (current & mask2) <= OBJ_PRIORITY) {
-			renderer->row[x + 7] = p | ((tileDataUpper & 128) >> 6) | ((tileDataLower & 128) >> 7);
+			if (!custom_pal)
+				renderer->row[x + 7] = p | ((tileDataUpper & 128) >> 6) | ((tileDataLower & 128) >> 7);
+			else
+				renderer->row[x + 7] = custom_pal[((tileDataUpper & 128) >> 6) | ((tileDataLower & 128) >> 7)];
 		}
 	} else {
 		uint8_t tileDataLower = data[(objTile * 8 + bottomY) * 2];
@@ -1118,35 +1315,59 @@ static void GBVideoSoftwareRendererDrawObj(struct GBVideoSoftwareRenderer* rende
 		unsigned current;
 		current = renderer->row[x + 7];
 		if (((tileDataUpper | tileDataLower) & 1) && !(current & mask) && (current & mask2) <= OBJ_PRIORITY) {
-			renderer->row[x + 7] = p | ((tileDataUpper & 1) << 1) | (tileDataLower & 1);
+			if (!custom_pal)
+				renderer->row[x + 7] = p | ((tileDataUpper & 1) << 1) | (tileDataLower & 1);
+			else
+				renderer->row[x + 7] = custom_pal[((tileDataUpper & 1) << 1) | (tileDataLower & 1)];
 		}
 		current = renderer->row[x + 6];
 		if (((tileDataUpper | tileDataLower) & 2) && !(current & mask) && (current & mask2) <= OBJ_PRIORITY) {
-			renderer->row[x + 6] = p | (tileDataUpper & 2) | ((tileDataLower & 2) >> 1);
+			if (!custom_pal)
+				renderer->row[x + 6] = p | (tileDataUpper & 2) | ((tileDataLower & 2) >> 1);
+			else
+				renderer->row[x + 6] = custom_pal[(tileDataUpper & 2) | ((tileDataLower & 2) >> 1)];
 		}
 		current = renderer->row[x + 5];
 		if (((tileDataUpper | tileDataLower) & 4) && !(current & mask) && (current & mask2) <= OBJ_PRIORITY) {
-			renderer->row[x + 5] = p | ((tileDataUpper & 4) >> 1) | ((tileDataLower & 4) >> 2);
+			if (!custom_pal)
+				renderer->row[x + 5] = p | ((tileDataUpper & 4) >> 1) | ((tileDataLower & 4) >> 2);
+			else
+				renderer->row[x + 5] = custom_pal[((tileDataUpper & 4) >> 1) | ((tileDataLower & 4) >> 2)];
 		}
 		current = renderer->row[x + 4];
 		if (((tileDataUpper | tileDataLower) & 8) && !(current & mask) && (current & mask2) <= OBJ_PRIORITY) {
-			renderer->row[x + 4] = p | ((tileDataUpper & 8) >> 2) | ((tileDataLower & 8) >> 3);
+			if (!custom_pal)
+				renderer->row[x + 4] = p | ((tileDataUpper & 8) >> 2) | ((tileDataLower & 8) >> 3);
+			else
+				renderer->row[x + 4] = custom_pal[((tileDataUpper & 8) >> 2) | ((tileDataLower & 8) >> 3)];
 		}
 		current = renderer->row[x + 3];
 		if (((tileDataUpper | tileDataLower) & 16) && !(current & mask) && (current & mask2) <= OBJ_PRIORITY) {
-			renderer->row[x + 3] = p | ((tileDataUpper & 16) >> 3) | ((tileDataLower & 16) >> 4);
+			if (!custom_pal)
+				renderer->row[x + 3] = p | ((tileDataUpper & 16) >> 3) | ((tileDataLower & 16) >> 4);
+			else
+				renderer->row[x + 3] = custom_pal[((tileDataUpper & 16) >> 3) | ((tileDataLower & 16) >> 4)];
 		}
 		current = renderer->row[x + 2];
 		if (((tileDataUpper | tileDataLower) & 32) && !(current & mask) && (current & mask2) <= OBJ_PRIORITY) {
-			renderer->row[x + 2] = p | ((tileDataUpper & 32) >> 4) | ((tileDataLower & 32) >> 5);
+			if (!custom_pal)
+				renderer->row[x + 2] = p | ((tileDataUpper & 32) >> 4) | ((tileDataLower & 32) >> 5);
+			else
+				renderer->row[x + 2] = custom_pal[((tileDataUpper & 32) >> 4) | ((tileDataLower & 32) >> 5)];
 		}
 		current = renderer->row[x + 1];
 		if (((tileDataUpper | tileDataLower) & 64) && !(current & mask) && (current & mask2) <= OBJ_PRIORITY) {
-			renderer->row[x + 1] = p | ((tileDataUpper & 64) >> 5) | ((tileDataLower & 64) >> 6);
+			if (!custom_pal)
+				renderer->row[x + 1] = p | ((tileDataUpper & 64) >> 5) | ((tileDataLower & 64) >> 6);
+			else
+				renderer->row[x + 1] = custom_pal[((tileDataUpper & 64) >> 5) | ((tileDataLower & 64) >> 6)];
 		}
 		current = renderer->row[x];
 		if (((tileDataUpper | tileDataLower) & 128) && !(current & mask) && (current & mask2) <= OBJ_PRIORITY) {
-			renderer->row[x] = p | ((tileDataUpper & 128) >> 6) | ((tileDataLower & 128) >> 7);
+			if (!custom_pal)
+				renderer->row[x] = p | ((tileDataUpper & 128) >> 6) | ((tileDataLower & 128) >> 7);
+			else
+				renderer->row[x] = custom_pal[((tileDataUpper & 128) >> 6) | ((tileDataLower & 128) >> 7)];
 		}
 	}
 }
@@ -1164,6 +1385,7 @@ static void GBVideoSoftwareRendererPutPixels(struct GBVideoRenderer* renderer, s
 	const mColor* colorPixels = pixels;
 	unsigned i;
 	for (i = 0; i < GB_VIDEO_VERTICAL_PIXELS; ++i) {
-		memmove(&softwareRenderer->outputBuffer[softwareRenderer->outputBufferStride * i], &colorPixels[stride * i], GB_VIDEO_HORIZONTAL_PIXELS * BYTES_PER_PIXEL);
+		memmove(&softwareRenderer->outputBuffer[softwareRenderer->outputBufferStride * i], &colorPixels[stride * i],
+		        GB_VIDEO_HORIZONTAL_PIXELS * BYTES_PER_PIXEL);
 	}
 }

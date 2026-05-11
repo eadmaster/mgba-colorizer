@@ -114,6 +114,7 @@ TileView::TileView(std::shared_ptr<CoreController> controller, QWidget* parent)
 	connect(m_ui.exportOne, &QAbstractButton::clicked, this, &TileView::exportTile);
 	connect(m_ui.copyAll, &QAbstractButton::clicked, this, &TileView::copyTiles);
 	connect(m_ui.copyOne, &QAbstractButton::clicked, this, &TileView::copyTile);
+	connect(m_ui.copyOneHex, &QAbstractButton::clicked, this, &TileView::copyTileHex);
 
 	QAction* exportAll = new QAction(this);
 	exportAll->setShortcut(QKeySequence::Save);
@@ -256,4 +257,10 @@ void TileView::copyTile() {
 	CoreController::Interrupter interrupter(m_controller);
 	updateTiles(false);
 	GBAApp::app()->clipboard()->setImage(m_ui.tile->activeTile());
+}
+
+void TileView::copyTileHex() {
+	CoreController::Interrupter interrupter(m_controller);
+	updateTiles(false);
+	GBAApp::app()->clipboard()->setText(m_ui.tile->activeTileHex());
 }
